@@ -3,3 +3,4 @@ assets/*
 *.mp4
 *.md
 *.pdf
+!README.md

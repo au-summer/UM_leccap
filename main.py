@@ -13,18 +13,28 @@ ASSETS_DIR = "assets"
 THUMB_MIN_DIFF = -1
 
 
-def clean_files():
-    if not os.path.exists(ASSETS_DIR):
-        os.makedirs(ASSETS_DIR)
-    else:
-        for p in os.listdir(ASSETS_DIR):
-            p = os.path.join(ASSETS_DIR, p)
-            if os.path.isfile(p):
-                os.unlink(p)
-    if os.path.exists(OUTPUT_MD):
-        os.unlink(OUTPUT_MD)
-    if os.path.exists(OUTPUT_PDF):
-        os.unlink(OUTPUT_PDF)
+def find_title() -> str:
+    # read the title from title of the mp4 file
+
+    mp4_files = glob.glob("*.mp4")
+    if not mp4_files:
+        raise RuntimeError("No video file found.")
+
+    return mp4_files[0].split(".")[0]
+
+
+def prepare_directory(title: str) -> None:
+    # delete previous files
+    if os.path.isdir(title):
+        to_delete = input(f"Directory '{title}' already exists. Delete? (y/n): ")
+        if to_delete.lower() == "y":
+            os.rmdir(title)
+        else:
+            print("Exiting without changes.")
+            return
+
+    os.makedirs(title, exist_ok=True)
+    os.makedirs(os.path.join(title, ASSETS_DIR), exist_ok=True)
 
 
 def ts_from_clock(clock: str) -> int:
@@ -121,36 +131,26 @@ def extract_thumb() -> list[int]:
     return thumbs
 
 
-def output_markdown(subs: list[tuple[int, str]], thumbs: list[int]) -> None:
-    # Figure out after which subtitle indices to insert blank lines
-    blank_after: set[int] = set()
-    for tt in thumbs:
-        for idx, (t, _) in enumerate(subs):
-            if t > tt:
-                if idx > 0:
-                    blank_after.add(idx - 1)
-                break
-
+def output_markdown(title: str, subs: list[tuple[int, str]], thumbs: list[int]) -> None:
     # Write result
-    thumb_counter = 1
+    thumb_idx = 0
 
-    with open(OUTPUT_MD, "w", encoding="utf-8") as out:
-        out.write("-" * 40 + f"\n({thumb_counter})\n")
-        thumb_counter += 1
-
+    with open(f"{title}/{OUTPUT_MD}", "w", encoding="utf-8") as out:
         for idx, (_, line) in enumerate(subs):
+            # write separators for thumbnails
+            while thumb_idx < len(thumbs) and thumbs[thumb_idx] < subs[idx][0]:
+                out.write("\n" + "-" * 40 + f"\n({thumb_idx + 1})\n")
+                thumb_idx += 1
+
             out.write(f"{line}\n")
-            if idx in blank_after:
-                out.write("\n" + "-" * 40 + f"\n({thumb_counter})\n")
-                thumb_counter += 1
 
 
-def grab_screenshots(video_path: str, timestamps: list[int]) -> None:
+def grab_screenshots(title: str, timestamps: list[int]) -> None:
     for idx, ts in enumerate(timestamps, 1):
         clock_str = clock_to_str(ts)
 
         out_png = os.path.join(
-            ASSETS_DIR, f"{idx:04}_{clock_str.replace(':', '-')}.png"
+            title, ASSETS_DIR, f"{idx:04}_{clock_str.replace(':', '-')}.png"
         )
         cmd = [
             "ffmpeg",
@@ -158,7 +158,7 @@ def grab_screenshots(video_path: str, timestamps: list[int]) -> None:
             "-ss",
             clock_to_str(ts),
             "-i",
-            video_path,
+            f"{title}.mp4",
             "-frames:v",
             "1",
             out_png,
@@ -171,12 +171,14 @@ def grab_screenshots(video_path: str, timestamps: list[int]) -> None:
         print(f"Screenshot at {clock_str} saved to {out_png}")
 
 
-def images_to_pdf(images_folder: str, pdf_path: str) -> None:
-    pngs = sorted(glob.glob(os.path.join(images_folder, "*.png")))
+def images_to_pdf(title: str) -> None:
+    pngs = sorted(glob.glob(os.path.join(title, ASSETS_DIR, "*.png")))
     if not pngs:
         raise RuntimeError("No PNG screenshots found to combine.")
 
     im_list = [Image.open(p).convert("RGB") for p in pngs]
+
+    pdf_path = os.path.join(title, OUTPUT_PDF)
 
     print(f"Converting {len(im_list)} images to PDF: {pdf_path}")
 
@@ -185,8 +187,11 @@ def images_to_pdf(images_folder: str, pdf_path: str) -> None:
 
 
 def main() -> None:
-    # clean previous files
-    clean_files()
+    # find title
+    title = find_title()
+
+    # prepare directory
+    prepare_directory(title)
 
     # extract subtitles
     subs = extract_subs()
@@ -195,18 +200,21 @@ def main() -> None:
     thumbs = extract_thumb()
 
     # output markdown
-    output_markdown(subs, thumbs)
+    output_markdown(title, subs, thumbs)
 
     # grab screenshots
-    try:
-        video_path = glob.glob("*.mp4")[0]
-    except IndexError:
-        raise RuntimeError("No video file found.")
-
-    grab_screenshots(video_path, thumbs)
+    grab_screenshots(title, thumbs)
 
     # convert images to PDF
-    images_to_pdf(ASSETS_DIR, OUTPUT_PDF)
+    images_to_pdf(title)
+
+    # move HTML and video to the new directory
+    os.rename(INPUT_HTML, os.path.join(title, INPUT_HTML))
+    os.rename(f"{title}.mp4", os.path.join(title, f"{title}.mp4"))
+
+    # create an empty HTML file
+    with open(INPUT_HTML, "w", encoding="utf-8") as _:
+        pass
 
 
 if __name__ == "__main__":

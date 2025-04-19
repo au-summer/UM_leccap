@@ -1,6 +1,4 @@
-assets/*
-*.html
-*.mp4
-*.md
-*.pdf
+*
+!main.py
+!markdown.py
 !README.md

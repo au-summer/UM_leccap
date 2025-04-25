@@ -1,7 +1,6 @@
 # Usage
 
-- Get body of html file of lecture recording website, put it in `leccap.html` under this directory.
-- Download the lecture recording as `.mp4`, put it under this directory. Give it a meaningful name, e.g. `482_lec25.mp4`.
+- Press `Ctrl + S` on the lecture recording website to save the page under this directory.
 - Run `python main.py` to get the transcript and slides.
 
 **NOTE**: Turn on the transcript and thumbnail in the lecture recording website.

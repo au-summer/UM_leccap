@@ -6,21 +6,55 @@ import subprocess
 import glob
 from PIL import Image
 
-INPUT_HTML = "leccap.html"
 OUTPUT_MD = "output.md"
 OUTPUT_PDF = "slides.pdf"
 ASSETS_DIR = "assets"
+
 THUMB_MIN_DIFF = -1
 
 
-def find_title() -> str:
-    # read the title from title of the mp4 file
+def find_html() -> str:
+    # find the only HTML file in the current directory
+    html_files = glob.glob("*.html")
+    if not html_files:
+        raise RuntimeError("No HTML file found.")
+    if len(html_files) > 1:
+        raise RuntimeError("Multiple HTML files found.")
 
-    mp4_files = glob.glob("*.mp4")
-    if not mp4_files:
-        raise RuntimeError("No video file found.")
+    return html_files[0]
 
-    return mp4_files[0].split(".")[0]
+
+def find_title(input_html: str) -> str:
+    # read the title from the HTML file
+    # in content-header-recording-title
+    with open(input_html, "r", encoding="utf-8") as fp:
+        soup = BeautifulSoup(fp, "html.parser")
+
+        title_tag = soup.find("title")
+        if title_tag and title_tag.get_text(strip=True):
+            return title_tag.get_text(strip=True)
+        else:
+            raise RuntimeError("No title found in HTML file.")
+
+
+def find_video(title: str) -> tuple[str, str]:
+    # find the directory having title as a substring
+    dirs = [d for d in os.listdir() if os.path.isdir(d)]
+    if not dirs:
+        raise RuntimeError("No directories found.")
+
+    for d in dirs:
+        if title in d:
+            # find the only .mp4 file in the directory
+            mp4_files = glob.glob(os.path.join(d, "*.mp4"))
+            if not mp4_files:
+                raise RuntimeError(f"No video file found in directory '{d}'.")
+            if len(mp4_files) > 1:
+                raise RuntimeError(f"Multiple video files found in directory '{d}'.")
+
+            return d, mp4_files[0]
+
+    raise RuntimeError("No video file found in any directory.")
 
 
 def prepare_directory(title: str) -> None:
@@ -82,9 +116,9 @@ def clock_to_str(ts: int) -> str:
     return f"{h:02}:{m:02}:{s:02}"
 
 
-def extract_subs() -> list[tuple[int, str]]:
+def extract_subs(input_html: str) -> list[tuple[int, str]]:
     # read HTML file
-    with open(INPUT_HTML, "r", encoding="utf-8") as fp:
+    with open(input_html, "r", encoding="utf-8") as fp:
         soup = BeautifulSoup(fp, "html.parser")
 
     subs: list[tuple[int, str]] = []
@@ -104,9 +138,9 @@ def extract_subs() -> list[tuple[int, str]]:
     return subs
 
 
-def extract_thumb() -> list[int]:
+def extract_thumb(input_html: str) -> list[int]:
     # read HTML file
-    with open(INPUT_HTML, "r", encoding="utf-8") as fp:
+    with open(input_html, "r", encoding="utf-8") as fp:
         soup = BeautifulSoup(fp, "html.parser")
 
     thumbs: list[int] = []
@@ -145,7 +179,7 @@ def output_markdown(title: str, subs: list[tuple[int, str]], thumbs: list[int]) 
             out.write(f"{line}\n")
 
 
-def grab_screenshots(title: str, timestamps: list[int]) -> None:
+def grab_screenshots(title: str, input_video: str, timestamps: list[int]) -> None:
     for idx, ts in enumerate(timestamps, 1):
         clock_str = clock_to_str(ts)
 
@@ -158,7 +192,7 @@ def grab_screenshots(title: str, timestamps: list[int]) -> None:
             "-ss",
             clock_to_str(ts),
             "-i",
-            f"{title}.mp4",
+            input_video,
             "-frames:v",
             "1",
             out_png,
@@ -187,34 +221,38 @@ def images_to_pdf(title: str) -> None:
 
 
 def main() -> None:
-    # find title
-    title = find_title()
+    # find html, title and video (must in this order)
+    input_html = find_html()
+    print(f"Input HTML: {input_html}")
+
+    title = input_html.split(".")[0]
+    print(f"Title: {title}")
+
+    input_dir, input_video = find_video(title)
+    print(f"Input directory: {input_dir}")
+    print(f"Input video: {input_video}")
 
     # prepare directory
     prepare_directory(title)
 
     # extract subtitles
-    subs = extract_subs()
+    subs = extract_subs(input_html)
 
     # thumbnails
-    thumbs = extract_thumb()
+    thumbs = extract_thumb(input_html)
 
     # output markdown
     output_markdown(title, subs, thumbs)
 
     # grab screenshots
-    grab_screenshots(title, thumbs)
+    grab_screenshots(title, input_video, thumbs)
 
     # convert images to PDF
     images_to_pdf(title)
 
-    # move HTML and video to the new directory
-    os.rename(INPUT_HTML, os.path.join(title, INPUT_HTML))
-    os.rename(f"{title}.mp4", os.path.join(title, f"{title}.mp4"))
-
-    # create an empty HTML file
-    with open(INPUT_HTML, "w", encoding="utf-8") as _:
-        pass
+    # move HTML and directory to the new directory
+    os.rename(input_html, os.path.join(title, input_html))
+    os.rename(input_dir, os.path.join(title, input_dir))
 
 
 if __name__ == "__main__":

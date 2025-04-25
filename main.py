@@ -1,6 +1,5 @@
 from bs4 import BeautifulSoup
 import re
-from pathlib import Path
 import os
 import subprocess
 import glob
@@ -147,9 +146,42 @@ def extract_thumb(input_html: str) -> list[int]:
     for thumb in soup.select("div.thumbnail[aria-label]"):
         ts = ts_from_thumb(str(thumb["aria-label"]))
         if ts is not None:
-            thumbs.append(ts)
+            # UMich may have invalid thumbnail timestamps
+            if thumbs and thumbs[-1] >= ts:
+                print(f"Warning: Invalid thumbnail timestamp {thumbs[-1]} >= {ts}")
+                # replace the previous thumbnail (maybe multiple) with -1
+                for i in range(len(thumbs) - 1, -1, -1):
+                    if thumbs[i] >= ts:
+                        thumbs[i] = -1
+                    else:
+                        break
 
-    thumbs.sort()
+            thumbs.append(ts)
+        else:
+            # UMich has the first thumnnail at 0:00 without label
+            thumbs.append(0)
+
+    # fill invalid timestamps with average filling
+    for i in range(len(thumbs)):
+        # the first one cannot be -1, so i starts from 1
+
+        if thumbs[i] == -1:
+            num_of_invalid = 0
+            for j in range(i, len(thumbs)):
+                if thumbs[j] == -1:
+                    num_of_invalid += 1
+                else:
+                    break
+            # fill the invalid timestamps with the average of the two closest timestamps
+            for j in range(i, i + num_of_invalid):
+                print(f"Warning: Filling invalid thumbnail timestamp {thumbs[j]} with")
+                thumbs[j] = int(
+                    thumbs[i - 1]
+                    + (thumbs[i + num_of_invalid] - thumbs[i - 1])
+                    / (num_of_invalid + 1)
+                    * (j - i + 1)
+                )
+                print(f" {thumbs[j]}")
 
     # (optional) clean thumbnails that are too close to each other
     if THUMB_MIN_DIFF > 0:
@@ -170,9 +202,9 @@ def output_markdown(title: str, subs: list[tuple[int, str]], thumbs: list[int]) 
     thumb_idx = 0
 
     with open(f"{title}/{OUTPUT_MD}", "w", encoding="utf-8") as out:
-        for idx, (_, line) in enumerate(subs):
+        for t, line in subs:
             # write separators for thumbnails
-            while thumb_idx < len(thumbs) and thumbs[thumb_idx] < subs[idx][0]:
+            while thumb_idx < len(thumbs) and thumbs[thumb_idx] <= t:
                 out.write("\n" + "-" * 40 + f"\n({thumb_idx + 1})\n")
                 thumb_idx += 1
 
@@ -186,11 +218,12 @@ def grab_screenshots(title: str, input_video: str, timestamps: list[int]) -> Non
         out_png = os.path.join(
             title, ASSETS_DIR, f"{idx:04}_{clock_str.replace(':', '-')}.png"
         )
+
         cmd = [
             "ffmpeg",
             "-y",
             "-ss",
-            clock_to_str(ts),
+            clock_str,
             "-i",
             input_video,
             "-frames:v",

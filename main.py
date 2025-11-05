@@ -47,13 +47,21 @@ def find_video(title: str) -> tuple[str, str]:
             # find the only .mp4 file in the directory
             mp4_files = glob.glob(os.path.join(d, "*.mp4"))
             if not mp4_files:
-                raise RuntimeError(f"No video file found in directory '{d}'.")
+                # raise RuntimeError(f"No video file found in directory '{d}'.")
+                print(f"No video file found in directory '{d}'.")
+                return d, ""
             if len(mp4_files) > 1:
-                raise RuntimeError(f"Multiple video files found in directory '{d}'.")
+                # raise RuntimeError(f"Multiple video files found in directory '{d}'.")
+                print(
+                    f"Multiple video files found in directory '{d}'. Using the first one."
+                )
+                return d, mp4_files[0]
 
             return d, mp4_files[0]
 
-    raise RuntimeError("No video file found in any directory.")
+    # raise RuntimeError("No video file found in any directory.")
+    print("No video file found in any directory.")
+    return "", ""
 
 
 def prepare_directory(title: str) -> None:
@@ -161,7 +169,7 @@ def extract_thumb(input_html: str) -> list[int]:
             # UMich has the first thumnnail at 0:00 without label
             thumbs.append(0)
 
-    # fill invalid timestamps with average filling
+    # impute invalid timestamps
     for i in range(len(thumbs)):
         # the first one cannot be -1, so i starts from 1
 
@@ -174,14 +182,12 @@ def extract_thumb(input_html: str) -> list[int]:
                     break
             # fill the invalid timestamps with the average of the two closest timestamps
             for j in range(i, i + num_of_invalid):
-                print(f"Warning: Filling invalid thumbnail timestamp {thumbs[j]} with")
                 thumbs[j] = int(
                     thumbs[i - 1]
                     + (thumbs[i + num_of_invalid] - thumbs[i - 1])
                     / (num_of_invalid + 1)
                     * (j - i + 1)
                 )
-                print(f" {thumbs[j]}")
 
     # (optional) clean thumbnails that are too close to each other
     if THUMB_MIN_DIFF > 0:
@@ -277,15 +283,17 @@ def main() -> None:
     # output markdown
     output_markdown(title, subs, thumbs)
 
-    # grab screenshots
-    grab_screenshots(title, input_video, thumbs)
+    if input_video:
+        # grab screenshots
+        grab_screenshots(title, input_video, thumbs)
 
-    # convert images to PDF
-    images_to_pdf(title)
+        # convert images to PDF
+        images_to_pdf(title)
 
-    # move HTML and directory to the new directory
-    os.rename(input_html, os.path.join(title, input_html))
-    os.rename(input_dir, os.path.join(title, input_dir))
+    if input_dir:
+        # move HTML and directory to the new directory
+        os.rename(input_html, os.path.join(title, input_html))
+        os.rename(input_dir, os.path.join(title, input_dir))
 
 
 if __name__ == "__main__":
